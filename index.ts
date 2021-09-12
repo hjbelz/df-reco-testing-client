@@ -13,6 +13,8 @@ import uuid = require('uuid');
 
 import fs = require('fs');
 import util = require('util');
+import path = require('path');
+
 import { Struct, struct } from 'pb-util';
 
 
@@ -24,6 +26,7 @@ const LANGUAGE_CODE = 'de-DE';
 
 // TODO See https://www.smashingmagazine.com/2021/01/dialogflow-agent-react-application/#handling-voice-inputs
 // TODO See https://github.com/googleapis/gax-nodejs/blob/main/client-libraries.md#creating-the-client-instance
+// TODO See https://github.com/savelee/kube-django-ng/blob/master/chatserver/src/dialogflow.ts
 
 
 async function detectAudioIntent(
@@ -61,7 +64,7 @@ async function detectAudioIntent(
   // Recognizes the speech in the audio and detects its intent.
   const [response] = await sessionClient.detectIntent(request);
 
-  console.log('Detected intent:');
+  console.log('--- Response -----------------------');
   const result = response.queryResult;
   // Instantiates a context client
   const contextClient = new dialogflow.ContextsClient();
@@ -76,20 +79,27 @@ async function detectAudioIntent(
 
   const parameters = JSON.stringify(struct.decode(result.parameters as Struct));
   console.log(`  Parameters: ${parameters}`);
+  
+  /* TODO Format output context and make optional.
   if (result.outputContexts && result.outputContexts.length) {
     console.log('  Output contexts:');
     result.outputContexts.forEach((context: { name?: string; parameters?: any; lifespanCount?: number; }) => {
       const contextId = contextClient.matchContextFromProjectAgentSessionContextName(
         context.name
       );
-      const contextParameters = JSON.stringify(
-        struct.decode(context.parameters)
-      );
+
+      let contextParameters = "NONE";
+      if (context.parameters) {
+        const contextParameters = JSON.stringify(
+          struct.decode(context.parameters)
+        );
+      }
       console.log(`    ${contextId}`);
       console.log(`      lifespan: ${context.lifespanCount}`);
       console.log(`      parameters: ${contextParameters}`);
     });
-  }
+  } 
+  */
 }
 
 async function runSample(filenames: string[], sessionId = uuid.v4(), audioEncoding = dialogflow.protos.google.cloud.dialogflow.v2.AudioEncoding.AUDIO_ENCODING_FLAC) {
@@ -97,23 +107,51 @@ async function runSample(filenames: string[], sessionId = uuid.v4(), audioEncodi
   for (let filename of filenames) {
 
     // Send request and log result
-    console.log(`Attempting to detect intent from audio file ${filename} `);
+    console.log(`-----------------\nDetecting intent from audio file ${filename} `);
     await detectAudioIntent(PROJECT_ID, sessionId, filename, audioEncoding, 44100, LANGUAGE_CODE);
   }
 }
 
-function runAllSamplesInPath(filepath: string) {
+async function runAllSamplesInPath(filepath: string) {
 
   console.log(`Reading audio files from folder ${filepath}`);
 
   let dirEntries: fs.Dirent[];
   try {
     dirEntries = fs.readdirSync(filepath, { withFileTypes: true });
-    for (const dirEntry of dirEntries)
-      if (dirEntry.isFile) {
-        console.log("Reading from audio from file " + dirEntry.name);
-        runSample([filepath + "/" + dirEntry.name]);
+    let initialAudioFile: string = null;
+    let audioFileCounter = 0;
+    const audioFileNames: string[] = [];
+
+    for (const dirEntry of dirEntries) {
+
+      if (dirEntry.isFile && path.extname(dirEntry.name) == ".flac") {
+
+        if (dirEntry.name.startsWith("_initial")) {
+          initialAudioFile = dirEntry.name;
+          console.log("Using " + dirEntry.name + " as initial utterance.");
+
+        } else {
+          audioFileNames.push(dirEntry.name);
+          audioFileCounter++;
+        }
+
+      } else {
+        console.info("Ignored dir entry " + dirEntry.name);
       }
+    }
+    console.log(`Added ${audioFileCounter} files to the test.`);
+
+    const sessionId = uuid.v4();
+    if (initialAudioFile) {
+      await runSample([filepath + "/" + initialAudioFile], sessionId);
+      console.log(`Initializing context with audio file '${initialAudioFile}'.`);
+    }
+
+    for (const audioFileName of audioFileNames) {
+      console.log(`Reading audio from file '${audioFileName}'.`);
+      runSample([filepath + "/" + audioFileName], sessionId);
+    }
   } catch (err) {
     console.error(err);
   }
