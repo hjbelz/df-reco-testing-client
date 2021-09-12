@@ -64,17 +64,17 @@ async function detectAudioIntent(
   // Recognizes the speech in the audio and detects its intent.
   const [response] = await sessionClient.detectIntent(request);
 
-  console.log('--- Response -----------------------');
+  console.log(`--- Response for audio file ${path.basename(filename)} -----------------------`);
   const result = response.queryResult;
   // Instantiates a context client
   const contextClient = new dialogflow.ContextsClient();
 
-  console.log(`  Query: ${result.queryText}`);
-  console.log(`  Response: ${result.fulfillmentText}`);
+  console.log(`   🎤 Query: ${result.queryText}`);
+  console.log(`   🔈 Response: ${result.fulfillmentText}`);
   if (result.intent) {
-    console.log(`  Intent: ${result.intent.displayName}`);
+    console.log(`   💡 Intent: ${result.intent.displayName}`);
   } else {
-    console.log('  No intent matched.');
+    console.log('   🐞 No intent matched.');
   }
 
   const parameters = JSON.stringify(struct.decode(result.parameters as Struct));
@@ -106,8 +106,8 @@ async function runSample(filenames: string[], sessionId = uuid.v4(), audioEncodi
 
   for (let filename of filenames) {
 
-    // Send request and log result
-    console.log(`-----------------\nDetecting intent from audio file ${filename} `);
+    // Send request (and log result)
+    // console.log(`-----------------\nDetecting intent from audio file ${filename} `);
     await detectAudioIntent(PROJECT_ID, sessionId, filename, audioEncoding, 44100, LANGUAGE_CODE);
   }
 }
@@ -137,7 +137,7 @@ async function runAllSamplesInPath(filepath: string) {
         }
 
       } else {
-        console.info("Ignored dir entry " + dirEntry.name);
+        console.info("❌ Ignored dir entry " + dirEntry.name);
       }
     }
     console.log(`Added ${audioFileCounter} files to the test.`);
@@ -156,9 +156,6 @@ async function runAllSamplesInPath(filepath: string) {
     console.error(err);
   }
 }
-
-
-
 
 runAllSamplesInPath(process.env.DF_RECO_TESTING_PATH);
 
