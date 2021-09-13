@@ -72,13 +72,14 @@ async function detectAudioIntent(
   console.log(`   🎤 Query: ${result.queryText}`);
   console.log(`   🔈 Response: ${result.fulfillmentText}`);
   if (result.intent) {
-    console.log(`   💡 Intent: ${result.intent.displayName} (${result.intentDetectionConfidence})`);
+    let intentEmoji = result.intent.isFallback? "🧨" : "💡";
+    console.log(`   ${intentEmoji} Intent: ${result.intent.displayName} (${result.intentDetectionConfidence})`);
   } else {
     console.log('   🐞 No intent matched.');
   }
 
   const parameters = JSON.stringify(struct.decode(result.parameters as Struct));
-  console.log(`  Parameters: ${parameters}`);
+  console.log(`  Parameters: ${parameters}\n`);
   
   /* TODO Format output context and make optional.
   if (result.outputContexts && result.outputContexts.length) {
