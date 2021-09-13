@@ -72,7 +72,7 @@ async function detectAudioIntent(
   console.log(`   🎤 Query: ${result.queryText}`);
   console.log(`   🔈 Response: ${result.fulfillmentText}`);
   if (result.intent) {
-    console.log(`   💡 Intent: ${result.intent.displayName}`);
+    console.log(`   💡 Intent: ${result.intent.displayName} (${result.intentDetectionConfidence})`);
   } else {
     console.log('   🐞 No intent matched.');
   }
