@@ -2,6 +2,7 @@
 const dotenv = require('dotenv'); // must be a node-style require!
 dotenv.config();
 const TESTING_PATH = process.env.DF_RECO_TESTING_PATH;
+const FIXED_INTENT_NAME = process.env.FIXED_INTENT_NAME;
 
 // Some useful info
 console.log(`Connecting with credentials from ${process.env.GOOGLE_APPLICATION_CREDENTIALS}.`);
@@ -24,9 +25,11 @@ const PROJECT_ID = 'df-reco-testing';
 const LANGUAGE_CODE = 'de-DE';
 
 
-// TODO See https://www.smashingmagazine.com/2021/01/dialogflow-agent-react-application/#handling-voice-inputs
-// TODO See https://github.com/googleapis/gax-nodejs/blob/main/client-libraries.md#creating-the-client-instance
-// TODO See https://github.com/savelee/kube-django-ng/blob/master/chatserver/src/dialogflow.ts
+// See https://www.smashingmagazine.com/2021/01/dialogflow-agent-react-application/#handling-voice-inputs
+// See https://github.com/googleapis/gax-nodejs/blob/main/client-libraries.md#creating-the-client-instance
+// See https://github.com/savelee/kube-django-ng/blob/master/chatserver/src/dialogflow.ts
+
+// TODO Fixed Context: Starting a new session for every request vs. just resetting the context
 
 
 async function detectAudioIntent(
@@ -35,7 +38,8 @@ async function detectAudioIntent(
   filename: string,
   encoding: dialogflow.protos.google.cloud.dialogflow.v2.AudioEncoding,
   sampleRateHertz: number,
-  languageCode: string
+  languageCode: string,
+  fixedContext?: string
 ) {
   // Instantiates a session client
   const sessionClient = new dialogflow.SessionsClient();
@@ -51,6 +55,7 @@ async function detectAudioIntent(
   const inputAudio = await readFile(filename);
   const request: dialogflow.protos.google.cloud.dialogflow.v2.IDetectIntentRequest = {
     session: sessionPath,
+    queryParams: {},
     queryInput: {
       audioConfig: {
         audioEncoding: encoding,
@@ -60,6 +65,17 @@ async function detectAudioIntent(
     },
     inputAudio: inputAudio,
   };
+
+  // optionally, set a fixed context 
+  if (fixedContext) {
+    request.queryParams.contexts = [
+      {
+        name: `projects/${projectId}/agent/sessions/${sessionId}/contexts/${fixedContext.toLowerCase()}`, // somebody loves REST URLs
+        lifespanCount: 5 // TODO Make flexible
+      }
+    ];
+    request.queryParams.resetContexts = true;  // Resetting all contexts, if context should be fixed.
+  }
 
   // Recognizes the speech in the audio and detects its intent.
   const [response] = await sessionClient.detectIntent(request);
@@ -109,7 +125,13 @@ async function runSample(filenames: string[], sessionId = uuid.v4(), audioEncodi
 
     // Send request (and log result)
     // console.log(`-----------------\nDetecting intent from audio file ${filename} `);
-    await detectAudioIntent(PROJECT_ID, sessionId, filename, audioEncoding, 44100, LANGUAGE_CODE);
+
+    // TODO Make fixed intent and other parameters more accessible and flexible
+    if (FIXED_INTENT_NAME) {
+      await detectAudioIntent(PROJECT_ID, sessionId, filename, audioEncoding, 44100, LANGUAGE_CODE, FIXED_INTENT_NAME);
+    } else {
+      await detectAudioIntent(PROJECT_ID, sessionId, filename, audioEncoding, 44100, LANGUAGE_CODE);
+    }
   }
 }
 
