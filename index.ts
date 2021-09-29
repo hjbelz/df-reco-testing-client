@@ -3,9 +3,14 @@ const dotenv = require('dotenv'); // must be a node-style require!
 dotenv.config();
 const TESTING_PATH = process.env.DF_RECO_TESTING_PATH;
 const FIXED_INTENT_NAME = process.env.FIXED_INTENT_NAME;
+const PROJECT_ID = process.env.PROJECT_ID;
+const LANGUAGE_CODE = process.env.LANGUAGE_CODE;;
+
+// TODO Check whether all mandatory config variables are properly set
 
 // Some useful info
-console.log(`Connecting with credentials from ${process.env.GOOGLE_APPLICATION_CREDENTIALS}.`);
+console.log(`-- Connecting to project ${process.env.PROJECT_ID} with language code ${process.env.LANGUAGE_CODE} .`);
+console.log(`-- Connecting with credentials from ${process.env.GOOGLE_APPLICATION_CREDENTIALS}.`);
 // console.log(`Testing audio files in path ${process.env.DF_RECO_TESTING_PATH}.`);
 
 // Google Dialogflow dependencies
@@ -17,12 +22,6 @@ import util = require('util');
 import path = require('path');
 
 import { Struct, struct } from 'pb-util';
-
-
-// Project parameters
-// TODO Move to environment variables or a JSON config file
-const PROJECT_ID = 'df-reco-testing';
-const LANGUAGE_CODE = 'de-DE';
 
 
 // See https://www.smashingmagazine.com/2021/01/dialogflow-agent-react-application/#handling-voice-inputs
@@ -137,7 +136,7 @@ async function runSample(filenames: string[], sessionId = uuid.v4(), audioEncodi
 
 async function runAllSamplesInPath(filepath: string) {
 
-  console.log(`Reading audio files from folder ${filepath}`);
+  console.log(`-- Reading audio files from folder ${filepath}`);
 
   let dirEntries: fs.Dirent[];
   try {
