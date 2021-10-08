@@ -2,12 +2,13 @@
 const dotenv = require('dotenv'); // must be a node-style require!
 dotenv.config();
 const TESTING_PATH = process.env.DF_RECO_TESTING_PATH;
-const FIXED_INTENT_NAME = process.env.FIXED_INTENT_NAME;
+const FIXED_CONTEXT_NAME = process.env.FIXED_CONTEXT_NAME;
 const PROJECT_ID = process.env.PROJECT_ID;
 const LANGUAGE_CODE = process.env.LANGUAGE_CODE;;
 
 // setup loggin with Winston 
 import { createLogger, format, transports,  } from 'winston';
+import { format as fns_format }  from 'date-fns';
 
 const messageOnlyFormat = format.printf(({ level, message, durationMs }) => { 
   if (durationMs) {
@@ -17,12 +18,13 @@ const messageOnlyFormat = format.printf(({ level, message, durationMs }) => {
   }
 });
 
+const logfileName = `DF-RecoTest ${fns_format(new Date(), "yyyy-MM-dd_HH-mm-ss")}.log`;
 
 const logger = createLogger({
   level: 'info',
   transports: [
     new transports.Console({ format: messageOnlyFormat }),
-    new transports.File({ filename: 'recotest.log', format: messageOnlyFormat })
+    new transports.File({ filename: logfileName, format: messageOnlyFormat })
   ]
 });
 
@@ -100,6 +102,7 @@ async function detectAudioIntent(
   // Recognizes the speech in the audio and detects its intent.
   const [response] = await sessionClient.detectIntent(request);
 
+  // TODO: Collect results over all tests in a hash map before logging to ensure alphabetical order?
   logger.info(`\n--- Response for audio file ${path.basename(filename)} -----------------------`);
   const result = response.queryResult;
   // Instantiates a context client
@@ -145,8 +148,8 @@ async function runSample(filenames: string[], sessionId = uuid.v4(), audioEncodi
   for (let filename of filenames) {
 
     // TODO Make fixed intent and other parameters more accessible and flexible
-    if (FIXED_INTENT_NAME) {
-      await detectAudioIntent(PROJECT_ID, sessionId, filename, audioEncoding, 44100, LANGUAGE_CODE, FIXED_INTENT_NAME);
+    if (FIXED_CONTEXT_NAME) {
+      await detectAudioIntent(PROJECT_ID, sessionId, filename, audioEncoding, 44100, LANGUAGE_CODE, FIXED_CONTEXT_NAME);
     } else {
       await detectAudioIntent(PROJECT_ID, sessionId, filename, audioEncoding, 44100, LANGUAGE_CODE);
     }
