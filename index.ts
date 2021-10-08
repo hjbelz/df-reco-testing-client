@@ -6,12 +6,33 @@ const FIXED_INTENT_NAME = process.env.FIXED_INTENT_NAME;
 const PROJECT_ID = process.env.PROJECT_ID;
 const LANGUAGE_CODE = process.env.LANGUAGE_CODE;;
 
+// setup loggin with Winston 
+import { createLogger, format, transports,  } from 'winston';
+
+const messageOnlyFormat = format.printf(({ level, message, durationMs }) => { 
+  if (durationMs) {
+    return `Duration of ${message}: ${durationMs} ms`;  
+  } else {
+    return `${message}`;
+  }
+});
+
+
+const logger = createLogger({
+  level: 'info',
+  transports: [
+    new transports.Console({ format: messageOnlyFormat }),
+    new transports.File({ filename: 'recotest.log', format: messageOnlyFormat })
+  ]
+});
+
+
 // TODO Check whether all mandatory config variables are properly set
 
 // Some useful info
-console.log(`-- Connecting to project ${process.env.PROJECT_ID} with language code ${process.env.LANGUAGE_CODE} .`);
-console.log(`-- Connecting with credentials from ${process.env.GOOGLE_APPLICATION_CREDENTIALS}.`);
-// console.log(`Testing audio files in path ${process.env.DF_RECO_TESTING_PATH}.`);
+logger.info(`-- Connecting to project ${process.env.PROJECT_ID} with language code ${process.env.LANGUAGE_CODE} .`);
+logger.debug(`-- Connecting with credentials from ${process.env.GOOGLE_APPLICATION_CREDENTIALS}.`);
+// log.info(`Testing audio files in path ${process.env.DF_RECO_TESTING_PATH}.`);
 
 // Google Dialogflow dependencies
 import dialogflow = require('@google-cloud/dialogflow');
@@ -22,7 +43,7 @@ import util = require('util');
 import path = require('path');
 
 import { Struct, struct } from 'pb-util';
-
+import winston = require('winston');
 
 // See https://www.smashingmagazine.com/2021/01/dialogflow-agent-react-application/#handling-voice-inputs
 // See https://github.com/googleapis/gax-nodejs/blob/main/client-libraries.md#creating-the-client-instance
@@ -79,26 +100,27 @@ async function detectAudioIntent(
   // Recognizes the speech in the audio and detects its intent.
   const [response] = await sessionClient.detectIntent(request);
 
-  console.log(`--- Response for audio file ${path.basename(filename)} -----------------------`);
+  logger.info(`\n--- Response for audio file ${path.basename(filename)} -----------------------`);
   const result = response.queryResult;
   // Instantiates a context client
   const contextClient = new dialogflow.ContextsClient();
 
-  console.log(`   🎤 Query: ${result.queryText}`);
-  console.log(`   🔈 Response: ${result.fulfillmentText}`);
+  logger.info(`   🎤 Query: ${result.queryText}`);
+  logger.info(`   🔈 Response: ${result.fulfillmentText}`);
   if (result.intent) {
-    let intentEmoji = result.intent.isFallback? "🧨" : "💡";
-    console.log(`   ${intentEmoji} Intent: ${result.intent.displayName} (${result.intentDetectionConfidence})`);
+    let intentEmoji = result.intent.isFallback ? "🧨" : "💡";
+    logger.info(`   ${intentEmoji} Intent: ${result.intent.displayName} (${result.intentDetectionConfidence})`);
   } else {
-    console.log('   🐞 No intent matched.');
+    logger.info('   🐞 No intent matched.');
   }
 
   const parameters = JSON.stringify(struct.decode(result.parameters as Struct));
-  console.log(`  Parameters: ${parameters}\n`);
-  
+  logger.info(`  Parameters: ${parameters}`);
+  logger.debug(`  Session ID: ${sessionId}`);
+
   /* TODO Format output context and make optional.
   if (result.outputContexts && result.outputContexts.length) {
-    console.log('  Output contexts:');
+    log.info('  Output contexts:');
     result.outputContexts.forEach((context: { name?: string; parameters?: any; lifespanCount?: number; }) => {
       const contextId = contextClient.matchContextFromProjectAgentSessionContextName(
         context.name
@@ -110,9 +132,9 @@ async function detectAudioIntent(
           struct.decode(context.parameters)
         );
       }
-      console.log(`    ${contextId}`);
-      console.log(`      lifespan: ${context.lifespanCount}`);
-      console.log(`      parameters: ${contextParameters}`);
+      log.info(`    ${contextId}`);
+      log.info(`      lifespan: ${context.lifespanCount}`);
+      log.info(`      parameters: ${contextParameters}`);
     });
   } 
   */
@@ -121,9 +143,6 @@ async function detectAudioIntent(
 async function runSample(filenames: string[], sessionId = uuid.v4(), audioEncoding = dialogflow.protos.google.cloud.dialogflow.v2.AudioEncoding.AUDIO_ENCODING_FLAC) {
 
   for (let filename of filenames) {
-
-    // Send request (and log result)
-    // console.log(`-----------------\nDetecting intent from audio file ${filename} `);
 
     // TODO Make fixed intent and other parameters more accessible and flexible
     if (FIXED_INTENT_NAME) {
@@ -136,7 +155,7 @@ async function runSample(filenames: string[], sessionId = uuid.v4(), audioEncodi
 
 async function runAllSamplesInPath(filepath: string) {
 
-  console.log(`-- Reading audio files from folder ${filepath}`);
+  logger.info(`-- Reading audio files from folder ${filepath}`);
 
   let dirEntries: fs.Dirent[];
   try {
@@ -151,7 +170,7 @@ async function runAllSamplesInPath(filepath: string) {
 
         if (dirEntry.name.startsWith("_initial")) {
           initialAudioFile = dirEntry.name;
-          console.log("Using " + dirEntry.name + " as initial utterance.");
+          logger.info("Using " + dirEntry.name + " as initial utterance.");
 
         } else {
           audioFileNames.push(dirEntry.name);
@@ -159,27 +178,45 @@ async function runAllSamplesInPath(filepath: string) {
         }
 
       } else {
-        console.info("❌ Ignored dir entry " + dirEntry.name);
+        logger.debug("❌ Ignored dir entry " + dirEntry.name);
       }
     }
-    console.log(`Added ${audioFileCounter} files to the test.`);
+    logger.info(`Added ${audioFileCounter} files to the test.`);
 
-    const sessionId = uuid.v4();
+
+    logger.debug(`Sorting audio files ...`);
+    audioFileNames.sort();
+
+    let sessionId = uuid.v4();
     if (initialAudioFile) {
       await runSample([filepath + "/" + initialAudioFile], sessionId);
-      console.log(`Initializing context with audio file '${initialAudioFile}'.`);
+      logger.info(`Initializing context with audio file '${initialAudioFile}'.`);
     }
 
     for (const audioFileName of audioFileNames) {
-      console.log(`Reading audio from file '${audioFileName}'.`);
+
+      // If there is no initial audio file, all samples are send to inidvidual sessions 
+      if (!initialAudioFile) {
+        sessionId = uuid.v4();
+      }
+
+      logger.debug(`Reading audio from file '${audioFileName}'.`);
+      // await runSample([filepath + "/" + audioFileName], sessionId);
       runSample([filepath + "/" + audioFileName], sessionId);
     }
   } catch (err) {
-    console.error(err);
+    logger.error(err);
   }
 }
 
-runAllSamplesInPath(process.env.DF_RECO_TESTING_PATH);
+async function execTestsAndWait(testSamplePath: string) {
+
+  const testRunDurationProfiler = logger.startTimer();
+  await runAllSamplesInPath(process.env.DF_RECO_TESTING_PATH);
+  testRunDurationProfiler.done({message: "test run"});
+}
+
+execTestsAndWait(process.env.DF_RECO_TESTING_PATH);
 
 // runSample([TESTING_PATH + "/mein-vorname-ist-heinz.flac"]);
 
