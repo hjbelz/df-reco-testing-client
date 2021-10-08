@@ -12,13 +12,13 @@ import { format as fns_format }  from 'date-fns';
 
 const messageOnlyFormat = format.printf(({ level, message, durationMs }) => { 
   if (durationMs) {
-    return `Duration of ${message}: ${durationMs} ms`;  
+    return `-- Duration of ${message}: ${durationMs} ms`;  
   } else {
     return `${message}`;
   }
 });
 
-const logfileName = `DF-RecoTest ${fns_format(new Date(), "yyyy-MM-dd_HH-mm-ss")}.log`;
+const logfileName = `DF-RecoTest_${fns_format(new Date(), "yyyy-MM-dd_HH-mm-ss")}.log`;
 
 const logger = createLogger({
   level: 'info',
@@ -54,13 +54,70 @@ import winston = require('winston');
 // TODO Fixed Context: Starting a new session for every request vs. just resetting the context
 
 
+
+/**
+ * A future log entry for caching.
+ */
+
+interface LogEntry {
+  level: string;
+  message: string;
+}
+
+/**
+ * Caches log statements of a test for later.
+ */
+class LogCache {
+  logEntryMap = new Map<string, LogEntry[]>();
+
+  addLogEntry(identifier: string, logEntry: LogEntry) {
+
+    let logEntriesOfTest = this.logEntryMap.get(identifier);
+    
+    if (logEntriesOfTest === undefined) {
+      logEntriesOfTest = [];
+      this.logEntryMap.set(identifier, logEntriesOfTest);  
+    }
+
+    logEntriesOfTest.push(logEntry);
+  }
+
+  info(identifier: string, message: string) {
+    this.addLogEntry(identifier, { level: "info", message: message } );
+  }
+
+  debug(identifier: string, message: string) {
+    this.addLogEntry(identifier, { level: "debug", message: message } );
+  }
+
+  error(identifier: string, message: string) {
+    this.addLogEntry(identifier, { level: "error", message: message } );
+  }
+
+  processEntries(processor: (logEntry: LogEntry) => void  ) {
+
+    logger.debug(`\n\n-- Processing cached log entries for ${this.logEntryMap.size} audio files:`);
+
+    let keys = Array.from( this.logEntryMap.keys() );
+    keys.sort();
+    for (let key of keys) {
+      let nextLogEntries = this.logEntryMap.get(key);
+      for (let nextlogEntry of nextLogEntries) {
+        processor(nextlogEntry);
+      }
+    }
+  }
+}
+
 async function detectAudioIntent(
   projectId: string,
+  logCacheTests : LogCache,
   sessionId: string,
   filename: string,
   encoding: dialogflow.protos.google.cloud.dialogflow.v2.AudioEncoding,
   sampleRateHertz: number,
   languageCode: string,
+  
   fixedContext?: string
 ) {
   // Instantiates a session client
@@ -103,23 +160,24 @@ async function detectAudioIntent(
   const [response] = await sessionClient.detectIntent(request);
 
   // TODO: Collect results over all tests in a hash map before logging to ensure alphabetical order?
-  logger.info(`\n--- Response for audio file ${path.basename(filename)} -----------------------`);
+  let audioFileName = path.basename(filename);
+  logCacheTests.info(audioFileName, `\n--- Response for audio file ${audioFileName} -----------------------`);
   const result = response.queryResult;
   // Instantiates a context client
   const contextClient = new dialogflow.ContextsClient();
 
-  logger.info(`   🎤 Query: ${result.queryText}`);
-  logger.info(`   🔈 Response: ${result.fulfillmentText}`);
+  logCacheTests.info(audioFileName, `   🎤 Query: ${result.queryText}`);
+  logCacheTests.info(audioFileName, `   🔈 Response: ${result.fulfillmentText}`);
   if (result.intent) {
     let intentEmoji = result.intent.isFallback ? "🧨" : "💡";
-    logger.info(`   ${intentEmoji} Intent: ${result.intent.displayName} (${result.intentDetectionConfidence})`);
+    logCacheTests.info(audioFileName, `   ${intentEmoji} Intent: ${result.intent.displayName} (${result.intentDetectionConfidence})`);
   } else {
-    logger.info('   🐞 No intent matched.');
+    logCacheTests.info(audioFileName, '   🐞 No intent matched.');
   }
 
   const parameters = JSON.stringify(struct.decode(result.parameters as Struct));
-  logger.info(`  Parameters: ${parameters}`);
-  logger.debug(`  Session ID: ${sessionId}`);
+  logCacheTests.info(audioFileName, `  Parameters: ${parameters}`);
+  logCacheTests.debug(audioFileName, `  Session ID: ${sessionId}`);
 
   /* TODO Format output context and make optional.
   if (result.outputContexts && result.outputContexts.length) {
@@ -143,20 +201,17 @@ async function detectAudioIntent(
   */
 }
 
-async function runSample(filenames: string[], sessionId = uuid.v4(), audioEncoding = dialogflow.protos.google.cloud.dialogflow.v2.AudioEncoding.AUDIO_ENCODING_FLAC) {
-
-  for (let filename of filenames) {
+async function runSingleSample(filename: string, logCacheTests: LogCache, sessionId = uuid.v4(), audioEncoding = dialogflow.protos.google.cloud.dialogflow.v2.AudioEncoding.AUDIO_ENCODING_FLAC) {
 
     // TODO Make fixed intent and other parameters more accessible and flexible
     if (FIXED_CONTEXT_NAME) {
-      await detectAudioIntent(PROJECT_ID, sessionId, filename, audioEncoding, 44100, LANGUAGE_CODE, FIXED_CONTEXT_NAME);
+      return detectAudioIntent(PROJECT_ID, logCacheTests, sessionId, filename, audioEncoding, 44100, LANGUAGE_CODE, FIXED_CONTEXT_NAME);
     } else {
-      await detectAudioIntent(PROJECT_ID, sessionId, filename, audioEncoding, 44100, LANGUAGE_CODE);
+      return detectAudioIntent(PROJECT_ID, logCacheTests, sessionId, filename, audioEncoding, 44100, LANGUAGE_CODE);
     }
-  }
 }
 
-async function runAllSamplesInPath(filepath: string) {
+async function runAllSamplesInPath(filepath: string, logCacheTests: LogCache) {
 
   logger.info(`-- Reading audio files from folder ${filepath}`);
 
@@ -184,18 +239,19 @@ async function runAllSamplesInPath(filepath: string) {
         logger.debug("❌ Ignored dir entry " + dirEntry.name);
       }
     }
-    logger.info(`Added ${audioFileCounter} files to the test.`);
+    logger.info(`-- Added ${audioFileCounter} files to the test.`);
 
 
-    logger.debug(`Sorting audio files ...`);
+    logger.debug(`-- Sorting audio files ...`);
     audioFileNames.sort();
 
+    // TODO Initial audio files will not work properly with async execution 
     let sessionId = uuid.v4();
     if (initialAudioFile) {
-      await runSample([filepath + "/" + initialAudioFile], sessionId);
-      logger.info(`Initializing context with audio file '${initialAudioFile}'.`);
+      await runSingleSample(filepath + "/" + initialAudioFile, logCacheTests, sessionId);
     }
 
+    let testFuncs = [];
     for (const audioFileName of audioFileNames) {
 
       // If there is no initial audio file, all samples are send to inidvidual sessions 
@@ -204,9 +260,12 @@ async function runAllSamplesInPath(filepath: string) {
       }
 
       logger.debug(`Reading audio from file '${audioFileName}'.`);
-      // await runSample([filepath + "/" + audioFileName], sessionId);
-      runSample([filepath + "/" + audioFileName], sessionId);
+      testFuncs.push(runSingleSample(filepath + "/" + audioFileName,logCacheTests, sessionId));
     }
+
+    // wait for the promises of all test runs to resolve
+    return Promise.all(testFuncs);
+
   } catch (err) {
     logger.error(err);
   }
@@ -214,12 +273,19 @@ async function runAllSamplesInPath(filepath: string) {
 
 async function execTestsAndWait(testSamplePath: string) {
 
+  let logCacheTests = new LogCache();
+
   const testRunDurationProfiler = logger.startTimer();
-  await runAllSamplesInPath(process.env.DF_RECO_TESTING_PATH);
+  await runAllSamplesInPath(testSamplePath, logCacheTests);
   testRunDurationProfiler.done({message: "test run"});
+
+  // log cached test run messages
+  logCacheTests.processEntries((logEntry: LogEntry) => {
+    logger.log(logEntry.level, logEntry.message);
+  });
 }
 
-execTestsAndWait(process.env.DF_RECO_TESTING_PATH);
+execTestsAndWait(TESTING_PATH);
 
 // runSample([TESTING_PATH + "/mein-vorname-ist-heinz.flac"]);
 
