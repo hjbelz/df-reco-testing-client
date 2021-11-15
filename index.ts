@@ -18,7 +18,7 @@ const messageOnlyFormat = format.printf(({ level, message, durationMs }) => {
   }
 });
 
-const logfileName = `DF-RecoTest_${fns_format(new Date(), "yyyy-MM-dd_HH-mm-ss")}.log`;
+const logfileName = `Reco_${FIXED_CONTEXT_NAME}_${fns_format(new Date(), "yyyy-MM-dd_HH-mm-ss")}.log`;
 
 const logger = createLogger({
   level: 'info',
